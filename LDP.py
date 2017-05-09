@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, render_template
 from eventbrite import Eventbrite
 
 app = Flask(__name__)
@@ -31,16 +31,7 @@ def subcategories():
     print(subcategory_list)
     subcategory_name = [subcategory['name'] for subcategory in subcategory_list['subcategories']]
     print(subcategory_name)
-    return '''
-    <html>
-      <head>
-        <title>Intuitive Guest Experiences Platform</title>
-      </head>
-      <body>
-        <h1>subcategory_list</h1>
-      </body>
-    </html>
-    '''
+    return render_template('subcategories.html',subcategory_name=subcategory_name)
 
 if __name__ == '__main__':
     app.run()

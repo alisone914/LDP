@@ -1,0 +1,9 @@
+welcome: Hello, welcome to the concierge. May I ask your name?
+
+offer help: How can I help you, {{guest_name}}?
+
+start: OK, let's get started with the event recommendation. When do you want to go to an event?
+
+event check: OK, I will search nearby events for {{desired_time}}. Would you like to hear my recommendation?
+
+recommendation: There is an event called {{event1}} that you may be interested in.
