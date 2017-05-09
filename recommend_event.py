@@ -83,5 +83,50 @@ def generate_recommendations(address, category_input, subcategory_input, locatio
     recommendation_msg = render_template('recommendation', event1=event1)
     return question(recommendation_msg)
 
+    eventdescr = [t['text'] for t in (e['description'] for e in eventquery['events'])]
+    # print(eventdescr)
+
+    #COLLECT ADDITIONAL INFO FOR FILES
+    eventdescr2 = []
+    for i in eventdescr:
+        eventdescr2.append((((i).replace("\n", " ")).replace("\r", " "))[0:30])
+    # print(eventdescr2)
+
+    eventlogo = [u['url'] for u in (o['original'] for o in (e['logo'] for e in eventquery['events']))]
+    # print(eventlogo)
+
+    eventkeys = []
+    for i in eventnames:
+        eventkeys.append(('event-' + i).replace(" ", "-"))
+    # print(eventkeys)
+
+    eventempty = []
+    for i in range(1, event_count):
+        eventempty.append("")
+    # print(eventempty)
+
+    eventlist = zip(eventkeys, eventnames, eventdescr2, eventempty, eventlogo)
+
+    ###################################
+    ### CREATE EVENT TERMS ###
+
+    eventterms = []
+    for i in eventnames:
+        eventterms.append((((category_input + '__' + subcategory_input).replace(" ", "_")).replace("/", "and")).lower())
+
+    termfile = zip(eventkeys, eventterms)
+
+    ### PUT EVENT DETAILS INTO PRODUCTS FILE ###
+
+    with open('/Users/alison.e.oneill/products.tsv', 'a') as f:
+        w = csv.writer(f, delimiter='\t')
+        for i in eventlist:
+            w.writerow(i)
+
+    with open('/Users/alison.e.oneill/terms.tsv', 'a') as f:
+        w = csv.writer(f, delimiter='\t')
+        for i in termfile:
+            w.writerow(i)
+
 if __name__ == '__main__':
     app.run(debug=True)
