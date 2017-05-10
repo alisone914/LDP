@@ -1,4 +1,5 @@
 import csv
+import io
 import logging
 
 from eventbrite import Eventbrite
@@ -114,12 +115,12 @@ def get_recommendation(desired_time):
 
     # PUT EVENT DETAILS INTO PRODUCTS FILE ###
 
-    with open('products.tsv', 'a', encoding='utf-8') as f:
+    with io.open('products.tsv', 'a', encoding='utf-8') as f:
         w = csv.writer(f, delimiter='\t')
         for i in eventlist:
             w.writerow(i)
 
-    with open('terms.tsv', 'a', encoding='utf-8') as f:
+    with io.open('terms.tsv', 'a', encoding='utf-8') as f:
         w = csv.writer(f, delimiter='\t')
         for i in termfile:
             w.writerow(i)
