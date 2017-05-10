@@ -41,7 +41,7 @@ def store_desired_time(desired_time):
 def generate_recommendations(satisfaction_response):
     event = get_recommendation(session.attributes['desired_time'])
     recommendation_msg = render_template('recommendation', event=event)
-    return question(recommendation_msg)
+    return statement(recommendation_msg)
 
 
 def get_recommendation(desired_time):
@@ -114,12 +114,12 @@ def get_recommendation(desired_time):
 
     # PUT EVENT DETAILS INTO PRODUCTS FILE ###
 
-    with open('products.tsv', 'a') as f:
+    with open('products.tsv', 'a', encoding='utf-8') as f:
         w = csv.writer(f, delimiter='\t')
         for i in eventlist:
             w.writerow(i)
 
-    with open('terms.tsv', 'a') as f:
+    with open('terms.tsv', 'a', encoding='utf-8') as f:
         w = csv.writer(f, delimiter='\t')
         for i in termfile:
             w.writerow(i)
