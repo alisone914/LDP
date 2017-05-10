@@ -84,35 +84,27 @@ def get_recommendation(desired_time):
                                             'location.within': location_radius,
                                             'start_date.keyword': event_timing})
 
-    eventnames = [t['text'] for t in (e['name'] for e in eventquery['events'])]
-    return eventnames[0]
+    eventnames = [e['name']['text'] for e in eventquery['events']]
 
-    eventdescr = [t['text'] for t in (e['description'] for e in eventquery['events'])]
-    # print(eventdescr)
+    eventdescr = [e['description']['text'] for e in eventquery['events']]
 
-    #COLLECT ADDITIONAL INFO FOR FILES
+    # COLLECT ADDITIONAL INFO FOR FILES
     eventdescr2 = []
     for i in eventdescr:
-        eventdescr2.append((((i).replace("\n", " ")).replace("\r", " "))[0:30])
-    # print(eventdescr2)
+        eventdescr2.append(((i.replace("\n", " ")).replace("\r", " "))[0:30])
 
-    eventlogo = [u['url'] for u in (o['original'] for o in (e['logo'] for e in eventquery['events']))]
-    # print(eventlogo)
+    eventlogo = []
+    for e in eventquery['events']:
+        eventlogo.append(e['logo']['original']['url'] if e['logo'] else '')
 
     eventkeys = []
     for i in eventnames:
         eventkeys.append(('event-' + i).replace(" ", "-"))
-    # print(eventkeys)
 
-    eventempty = []
-    for i in range(1, event_count):
-        eventempty.append("")
-    # print(eventempty)
-
-    eventlist = zip(eventkeys, eventnames, eventdescr2, eventempty, eventlogo)
+    eventlist = zip(eventkeys, eventnames, eventdescr2, ['']*len(eventkeys), eventlogo)
 
     ###################################
-    ### CREATE EVENT TERMS ###
+    # CREATE EVENT TERMS ###
 
     eventterms = []
     for i in eventnames:
@@ -120,17 +112,19 @@ def get_recommendation(desired_time):
 
     termfile = zip(eventkeys, eventterms)
 
-    ### PUT EVENT DETAILS INTO PRODUCTS FILE ###
+    # PUT EVENT DETAILS INTO PRODUCTS FILE ###
 
-    with open('/Users/alison.e.oneill/products.tsv', 'a') as f:
+    with open('products.tsv', 'a') as f:
         w = csv.writer(f, delimiter='\t')
         for i in eventlist:
             w.writerow(i)
 
-    with open('/Users/alison.e.oneill/terms.tsv', 'a') as f:
+    with open('terms.tsv', 'a') as f:
         w = csv.writer(f, delimiter='\t')
         for i in termfile:
             w.writerow(i)
+
+    return eventnames[0]
 
 
 if __name__ == '__main__':
