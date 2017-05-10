@@ -39,7 +39,7 @@ def store_desired_time(desired_time):
 
 @ask.intent("SatisfactionIntent", convert={'satisfaction_response': str})
 def generate_recommendations(satisfaction_response):
-    event = get_recommendation(session.attribute['desired_time'])
+    event = get_recommendation(session.attributes['desired_time'])
     recommendation_msg = render_template('recommendation', event=event)
     return question(recommendation_msg)
 
