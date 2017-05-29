@@ -1,9 +1,23 @@
-welcome: Hello, welcome to the concierge. May I ask your name?
+welcome: Hello, welcome to the concierge. May I ask your room number?
+
+reprompt welcome: May I ask your room number?
 
 offer help: How can I help you, {{guest_name}}?
 
+reprompt offer help: How can I help you?
+
 start: OK, let's get started with the event recommendation. When do you want to go to an event?
+
+reprompt start: When do you want to go to an event? You can say today, tomorrow, this week, or next week.
 
 event check: OK, I will search nearby events for {{desired_time}}. Would you like to hear my recommendation?
 
-recommendation: There is an event called {{event}} that you may be interested in.
+recommendation: There is an event called {{event}} that you may be interested in. I texted you the details.
+
+music offer: Which artist would you like to hear?
+
+no result: Sorry, I don't have any songs by {{guest_artist}}. Is there a different artist you may like to hear?
+
+no event: Sorry, I couldn't find any events you might enjoy {{desired_time}}. Would you like to try again?
+
+closing: OK, please let me know if I can help with anything else. Goodbye.
