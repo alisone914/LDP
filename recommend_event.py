@@ -1,15 +1,17 @@
 import csv
 import io
 import logging
+import googlemaps
 
 from eventbrite import Eventbrite
 from flask import Flask, render_template
-from flask_ask import Ask, question, session, statement
+from flask_ask import Ask, request, session, question, statement, context, audio, current_stream
 
 
 app = Flask(__name__)
 ask = Ask(app, "/")
 logging.getLogger("flask_ask").setLevel(logging.DEBUG)
+google_api_key = 'AIzaSyBoZ4kixdzSR28V67-EaID4FjMKZQvcp_w'
 
 
 @ask.launch
@@ -18,9 +20,20 @@ def new_interaction():
     return question(welcome_msg)
 
 
-@ask.intent("NameIntent", convert={'guest_name': str})
-def store_name(guest_name):
-    session.attributes['guest_name'] = guest_name
+@ask.intent("RoomIntent", convert={'room_number': int})
+def store_room_number(room_number):
+    session.attributes['room_number'] = room_number
+    room_number = str(room_number)
+    with io.open('guests.csv', 'r') as f:
+        r = csv.DictReader(f, fieldnames=("room_number", "first_name", "last_name", "hotel","phone_number", "music_cat", "music_cat_id"))
+        for row in r:
+            file_room_number = row['room_number']
+            if file_room_number == room_number:
+                guest_name = row['first_name']
+                session.attributes['guest_name'] = guest_name
+                session.attributes['hotel'] = row['hotel']
+                session.attributes['phone_number'] = row['phone_number']
+                session.attributes['music_cat_id'] = row['music_cat_id']
     offer_msg = render_template('offer help', guest_name=guest_name)
     return question(offer_msg)
 
@@ -33,6 +46,8 @@ def new_recommendation():
 
 @ask.intent("DesiredTimeIntent", convert={'desired_time': str})
 def store_desired_time(desired_time):
+    desired_time = desired_time.replace(" ","_")
+    print(desired_time)
     session.attributes['desired_time'] = desired_time
     checking_msg = render_template('event check', desired_time=desired_time)
     return question(checking_msg)
@@ -49,11 +64,16 @@ def get_recommendation(desired_time):
     """Get a recommendation from EventBrite."""
     eventbrite = Eventbrite('7BKHCZRFPHVW5PN262TD')
 
+    # GET ADDRESS FROM HOTEL NAME (GOOGLEMAPS)
+    gmaps = googlemaps.Client(key=google_api_key)
+    places_result = gmaps.places(query=session.attributes['hotel'])
+    hotel_address = [e['formatted_address'] for e in places_result['results']]
+
     # GET CATEGORY ID FROM CATEGORY NAME
-    address = '181 3rd St, San Francisco, CA 94103'
+    address = hotel_address
     category_input = 'Music'
-    subcategory_input = 'EDM / Electronic'
-    location_radius = '1mi'
+    subcategory_input = session.attributes['music_cat_id']
+    location_radius = '10mi'
     event_timing = desired_time
     categoryquery = eventbrite.get_categories()
 
@@ -86,26 +106,46 @@ def get_recommendation(desired_time):
                                             'start_date.keyword': event_timing})
 
     eventnames = [e['name']['text'] for e in eventquery['events']]
+    event1 = eventnames[0]
 
     eventdescr = [e['description']['text'] for e in eventquery['events']]
+    descr1 = eventdescr[0]
 
     # COLLECT ADDITIONAL INFO FOR FILES
-    eventdescr2 = []
-    for i in eventdescr:
-        eventdescr2.append(((i.replace("\n", " ")).replace("\r", " "))[0:30])
+    #eventdescr2 = []
+    #for i in eventdescr:
+        #if i is None:
+            #eventdescr2.append("")
+        #eventdescr2.append(((i.replace("\n", " ")).replace("\r", " "))[0:30])
 
     eventlogo = []
     for e in eventquery['events']:
         eventlogo.append(e['logo']['original']['url'] if e['logo'] else '')
+    logo1 = eventlogo[0]
 
     eventkeys = []
     for i in eventnames:
         eventkeys.append(('event-' + i).replace(" ", "-"))
 
-    eventlist = zip(eventkeys, eventnames, eventdescr2, ['']*len(eventkeys), eventlogo)
+    eventlist = zip(eventkeys, eventnames, eventnames, ['']*len(eventkeys), eventlogo)
 
-    ###################################
-    # CREATE EVENT TERMS ###
+    eventstart = [l['local'] for l in (e['start'] for e in eventquery['events'])]
+    start1 = eventstart[0]
+
+    eventend = [l['local'] for l in (e['end'] for e in eventquery['events'])]
+    end1 = eventend[0]
+
+    eventvenue = [v['venue_id'] for v in eventquery['events']]
+    venue1 = eventvenue[0]
+    venuequery = eventbrite.get('/venues/{0}'.format(venue1))
+    a = []
+    venue_list = venuequery['address']['localized_multi_line_address_display']
+    venue_string = " ".join(str(x) for x in venue_list)
+
+    eventurl = [u['url'] for u in eventquery['events']]
+    url1 = eventurl[0]
+
+     # CREATE EVENT TERMS
 
     eventterms = []
     for i in eventnames:
@@ -113,7 +153,7 @@ def get_recommendation(desired_time):
 
     termfile = zip(eventkeys, eventterms)
 
-    # PUT EVENT DETAILS INTO PRODUCTS FILE ###
+    # PUT EVENT DETAILS INTO PRODUCTS FILE
 
     with io.open('products.tsv', 'a', encoding='utf-8') as f:
         w = csv.writer(f, delimiter='\t')
@@ -125,8 +165,25 @@ def get_recommendation(desired_time):
         for i in termfile:
             w.writerow(i)
 
+    # TEXT EVENT DETAILS
+    from twilio.rest import Client
+
+    account_sid = "AC4d62dd42e37b59cbcba3c2366850816a"
+    auth_token = "ee303eed9d2af6fa990fddb20e34254b"
+
+    client = Client(account_sid, auth_token)
+
+    client.messages.create(
+        to=session.attributes['phone_number'],
+        from_="+14252303576",
+        body="Your IHG Concierge has sent you an event you may enjoy: " + '\n' + event1 + '\n' + descr1[:800] + '\n' + "Start Time: " + start1 + '\n' + "End Time: " + end1 + '\n' + "Venue: " + venue_string + '\n' + url1,
+        media_url=logo1)
+
     return eventnames[0]
 
+@ask.intent('AMAZON.StopIntent')
+def stop():
+    return audio('stopping').clear_queue(stop=True)
 
 if __name__ == '__main__':
     app.run(debug=True)
