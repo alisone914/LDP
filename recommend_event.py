@@ -11,7 +11,13 @@ from flask_ask import Ask, request, session, question, statement, context, audio
 app = Flask(__name__)
 ask = Ask(app, "/")
 logging.getLogger("flask_ask").setLevel(logging.DEBUG)
-google_api_key = 'AIzaSyBoZ4kixdzSR28V67-EaID4FjMKZQvcp_w'
+
+def get_key(api_source):
+    with io.open('api_keys.csv', 'r') as f:
+        r = csv.DictReader(f, fieldnames=("api_source","api_key"))
+        for row in r:
+            if row['api_source'] == api_source:
+                return row['api_key']
 
 
 @ask.launch
@@ -46,9 +52,9 @@ def new_recommendation():
 
 @ask.intent("DesiredTimeIntent", convert={'desired_time': str})
 def store_desired_time(desired_time):
-    desired_time = desired_time.replace(" ","_")
+    desired_time_var = desired_time.replace(" ","_")
     print(desired_time)
-    session.attributes['desired_time'] = desired_time
+    session.attributes['desired_time'] = desired_time_var
     checking_msg = render_template('event check', desired_time=desired_time)
     return question(checking_msg)
 
@@ -62,9 +68,11 @@ def generate_recommendations(satisfaction_response):
 
 def get_recommendation(desired_time):
     """Get a recommendation from EventBrite."""
-    eventbrite = Eventbrite('7BKHCZRFPHVW5PN262TD')
+    eventbrite_api_key = get_key('eventbrite')
+    eventbrite = Eventbrite(eventbrite_api_key)
 
     # GET ADDRESS FROM HOTEL NAME (GOOGLEMAPS)
+    google_api_key = get_key('google')
     gmaps = googlemaps.Client(key=google_api_key)
     places_result = gmaps.places(query=session.attributes['hotel'])
     hotel_address = [e['formatted_address'] for e in places_result['results']]
@@ -168,14 +176,14 @@ def get_recommendation(desired_time):
     # TEXT EVENT DETAILS
     from twilio.rest import Client
 
-    account_sid = "AC4d62dd42e37b59cbcba3c2366850816a"
-    auth_token = "ee303eed9d2af6fa990fddb20e34254b"
+    account_sid = get_key('twilio_sid')
+    auth_token = get_key('twilio_token')
 
     client = Client(account_sid, auth_token)
 
     client.messages.create(
         to=session.attributes['phone_number'],
-        from_="+14252303576",
+        from_=get_key('twilio_phone'),
         body="Your IHG Concierge has sent you an event you may enjoy: " + '\n' + event1 + '\n' + descr1[:800] + '\n' + "Start Time: " + start1 + '\n' + "End Time: " + end1 + '\n' + "Venue: " + venue_string + '\n' + url1,
         media_url=logo1)
 
