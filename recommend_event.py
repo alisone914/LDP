@@ -300,7 +300,7 @@ def get_url(artist_request):
 
     # UPDATE TRANSACTIONS FILE WITH MUSIC INTERACTION
     transactions = []
-    transactions.insert(0, datetime.datetime.now().replace(microsecond=0).isoformat() + 'Z')
+    transactions.insert(0, "")
     transactions.insert(1, session.attributes['guest_name'].lower())
     transactions.insert(2, ('music-' + artist_request).replace(" ", "-").lower())
     transactions.insert(3, '1')
