@@ -11,6 +11,7 @@ from flask import Flask, render_template
 from flask_ask import Ask, request, session, question, statement, context, audio, current_stream
 from tempfile import NamedTemporaryFile
 import shutil
+from spotipy.oauth2 import SpotifyClientCredentials
 
 
 app = Flask(__name__)
@@ -103,7 +104,9 @@ def generate_recommendations(satisfaction_response):
 
 
 def get_recommendation(desired_time):
-    """Get a recommendation from EventBrite."""
+    #GET EVENT RECOMMENDATION FROM EVENTBRITE
+
+    # GET EVENTBRITE API KEY
     eventbrite_api_key = get_key('eventbrite')
     eventbrite = Eventbrite(eventbrite_api_key)
 
@@ -189,7 +192,7 @@ def get_recommendation(desired_time):
     eventurl = [u['url'] for u in eventquery['events']]
     url1 = eventurl[0]
 
-     # CREATE EVENT TERMS
+    # CREATE EVENT TERMS
 
     eventterms = []
     for i in eventnames:
@@ -197,8 +200,7 @@ def get_recommendation(desired_time):
 
     termfile = zip(eventkeys, eventterms)
 
-    # PUT EVENT DETAILS INTO PRODUCTS FILE
-
+    # PUT EVENT DETAILS INTO PRODUCTS FILE AND TERMS FILE
     with io.open('products.tsv', 'a', encoding='utf-8') as f:
         w = csv.writer(f, delimiter='\t')
         if f.tell() !=3:
@@ -235,8 +237,14 @@ def get_recommendation(desired_time):
 
 def get_url(artist_request):
 
+    # USE SPOTIFY CLIENT CREDENTIALS FROM API KEYS FILE
+    spotify_client_id = get_key('spotify_client_id')
+    spotify_client_secret = get_key('spotify_client_secret')
+    client_credentials_manager = SpotifyClientCredentials(client_id=spotify_client_id,
+                                                          client_secret=spotify_client_secret)
+    spot = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+
     # GET ARTIST ID FROM SPOTIFY
-    spot = spotipy.Spotify()
     artistquery = spot.search(q=artist_request, type='artist')
 
     artist_id = [e['id'] for e in artistquery['artists']['items']]
@@ -269,7 +277,7 @@ def get_url(artist_request):
                 w = csv.writer(f)
                 w.writerow(session.attributes['category_map_error'])
 
-# UPDATE TERMS FILE WITH ARTIST GENRES
+    # UPDATE TERMS FILE WITH ARTIST GENRES
     file_genres = []
     for x in artist_genres:
         file_genres.append(('music__' + x).replace(" ", "_").lower())
@@ -290,7 +298,7 @@ def get_url(artist_request):
         f.seek(f.tell() - len(os.linesep))
         f.truncate()
 
-# UPDATE TRANSACTIONS FILE WITH MUSIC INTERACTION
+    # UPDATE TRANSACTIONS FILE WITH MUSIC INTERACTION
     transactions = []
     transactions.insert(0, datetime.datetime.now().replace(microsecond=0).isoformat() + 'Z')
     transactions.insert(1, session.attributes['guest_name'].lower())
@@ -309,7 +317,7 @@ def get_url(artist_request):
 
 
 
-# UPDATE GUESTS.CSV FILE WITH NEW PREFERRED CATEGORY
+    # UPDATE GUESTS.CSV FILE WITH NEW PREFERRED CATEGORY
     filename = 'guests.csv'
     with NamedTemporaryFile('w', delete=False, encoding='UTF-8') as tempfile:
         with open(filename) as f:
@@ -330,11 +338,9 @@ def get_url(artist_request):
         tempfile.truncate()
     shutil.move(tempfile.name, filename)
 
-# RETURN PREVIEW URL FROM SPOTIFY
+    # RETURN PREVIEW URL FROM SPOTIFY
     top_track_query = spot.artist_top_tracks(artist_id=artist_id_str)
-
     preview_urls = [e['preview_url'] for e in top_track_query['tracks']]
-
     for x in preview_urls:
         if x is not None:
             return x
