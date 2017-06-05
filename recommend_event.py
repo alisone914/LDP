@@ -88,6 +88,7 @@ def new_recommendation():
 def store_desired_time(desired_time):
     desired_time_var = desired_time.replace(" ","_")
     print(desired_time)
+    session.attributes['desired_time_speak'] = desired_time
     session.attributes['desired_time'] = desired_time_var
     checking_msg = render_template('event check', desired_time=desired_time)
     return question(checking_msg)
@@ -97,7 +98,7 @@ def store_desired_time(desired_time):
 def generate_recommendations(satisfaction_response):
     event = get_recommendation(session.attributes['desired_time'])
     if not event:
-        no_event = render_template('no event', desired_time=session.attributes['desired_time'])
+        no_event = render_template('no event', desired_time=session.attributes['desired_time_speak'])
         return question(no_event)
     recommendation_msg = render_template('recommendation', event=event)
     return statement(recommendation_msg)
@@ -153,6 +154,8 @@ def get_recommendation(desired_time):
                                             'start_date.keyword': event_timing})
 
     eventnames = [e['name']['text'] for e in eventquery['events']]
+    if not eventnames:
+        return False
     event1 = eventnames[0]
 
     eventdescr = [e['description']['text'] for e in eventquery['events']]
@@ -203,6 +206,8 @@ def get_recommendation(desired_time):
     # PUT EVENT DETAILS INTO PRODUCTS FILE AND TERMS FILE
     with io.open('products.tsv', 'a', encoding='utf-8') as f:
         w = csv.writer(f, delimiter='\t')
+        f.seek(f.tell() - len(os.linesep))
+        f.truncate()
         if f.tell() !=3:
             w.writerow("")
         for i in eventlist:
@@ -212,6 +217,8 @@ def get_recommendation(desired_time):
 
     with io.open('terms.tsv', 'a', encoding='utf-8') as f:
         w = csv.writer(f, delimiter='\t')
+        f.seek(f.tell() - len(os.linesep))
+        f.truncate()
         if f.tell() !=3:
             w.writerow("")
         for i in termfile:
@@ -280,8 +287,8 @@ def get_url(artist_request):
     # UPDATE TERMS FILE WITH ARTIST GENRES
     file_genres = []
     for x in artist_genres:
-        file_genres.append(('music__' + x).replace(" ", "_").lower())
-    file_genres.append(('music__' + session.attributes['eventbrite_cat']))
+        file_genres.append(('music__' + x).replace(" ", "_").replace("-", "_").lower())
+    file_genres.append(('music__' + session.attributes['eventbrite_cat']).replace(" ", "_").replace("-", "_").lower())
 
     artistset = []
     for i in file_genres:
@@ -291,6 +298,8 @@ def get_url(artist_request):
 
     with open('terms.tsv', 'a') as f:
         w = csv.writer(f, delimiter='\t')
+        f.seek(f.tell() - len(os.linesep))
+        f.truncate()
         if f.tell() !=3:
             w.writerow("")
         for i in artisttags:
@@ -308,6 +317,8 @@ def get_url(artist_request):
 
     with open('transactions.tsv', 'a') as f:
         w = csv.writer(f, delimiter='\t')
+        f.seek(f.tell() - len(os.linesep))
+        f.truncate()
         if f.tell() !=3:
             w.writerow("")
         for i in transactions:
