@@ -1,5 +1,13 @@
-flask
-flask_ask
-eventbrite
-musicbrainz
-
+csv
+io
+logging
+os
+googlemaps
+spotipy
+datetime
+eventbrite import Eventbrite
+flask import Flask, render_template
+flask_ask import Ask, request, session, question, statement, context, audio, current_stream
+tempfile import NamedTemporaryFile
+shutil
+spotipy.oauth2 import SpotifyClientCredentials
