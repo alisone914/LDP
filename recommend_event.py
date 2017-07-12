@@ -1,30 +1,38 @@
 import csv
+import datetime
 import io
 import logging
 import os
+import shutil
+import tempfile
+import urllib
 
 import googlemaps
+import psycopg2
 import spotipy
-import datetime
+import twilio.rest
 from eventbrite import Eventbrite
-from flask import Flask, render_template
-from flask_ask import Ask, request, session, question, statement, context, audio, current_stream
-from tempfile import NamedTemporaryFile
-import shutil
+from flask import Flask, make_response, render_template
+from flask_ask import Ask, audio, context, current_stream, question, \
+                      request, session, statement
 from spotipy.oauth2 import SpotifyClientCredentials
 
 
 app = Flask(__name__)
-ask = Ask(app, "/")
+ask = Ask(app, "/ask")
 logging.getLogger("flask_ask").setLevel(logging.DEBUG)
 reprompt_txt = "I didn't get that, "
 
+
 def get_key(api_source):
-    with io.open('api_keys.csv', 'r') as f:
-        r = csv.DictReader(f, fieldnames=("api_source","api_key"))
-        for row in r:
-            if row['api_source'] == api_source:
-                return row['api_key']
+    var = os.environ.get(api_source)
+    if not var:
+        with io.open('api_keys.csv', 'r') as f:
+            r = csv.DictReader(f, fieldnames=("api_source", "api_key"))
+            for row in r:
+                if row['api_source'] == api_source:
+                    var = row['api_key']
+    return var
 
 
 @ask.launch
@@ -40,7 +48,9 @@ def store_room_number(room_number):
     session.attributes['room_number'] = room_number
     room_number = str(room_number)
     with io.open('guests.csv', 'r') as f:
-        r = csv.DictReader(f, fieldnames=("room_number", "first_name", "last_name", "hotel","phone_number", "music_cat", "music_cat_id"))
+        r = csv.DictReader(f, fieldnames=(
+            "room_number", "first_name", "last_name", "hotel",
+            "phone_number", "music_cat", "music_cat_id"))
         for row in r:
             file_room_number = row['room_number']
             if file_room_number == room_number:
@@ -86,8 +96,7 @@ def new_recommendation():
 
 @ask.intent("DesiredTimeIntent", convert={'desired_time': str})
 def store_desired_time(desired_time):
-    desired_time_var = desired_time.replace(" ","_")
-    print(desired_time)
+    desired_time_var = desired_time.replace(" ", "_")
     session.attributes['desired_time_speak'] = desired_time
     session.attributes['desired_time'] = desired_time_var
     checking_msg = render_template('event check', desired_time=desired_time)
@@ -98,21 +107,22 @@ def store_desired_time(desired_time):
 def generate_recommendations(satisfaction_response):
     event = get_recommendation(session.attributes['desired_time'])
     if not event:
-        no_event = render_template('no event', desired_time=session.attributes['desired_time_speak'])
+        desired_time = session.attributes['desired_time_speak']
+        no_event = render_template('no event', desired_time=desired_time)
         return question(no_event)
     recommendation_msg = render_template('recommendation', event=event)
     return statement(recommendation_msg)
 
 
 def get_recommendation(desired_time):
-    #GET EVENT RECOMMENDATION FROM EVENTBRITE
+    # GET EVENT RECOMMENDATION FROM EVENTBRITE
 
     # GET EVENTBRITE API KEY
-    eventbrite_api_key = get_key('eventbrite')
+    eventbrite_api_key = get_key('EVENTBRITE_TOKEN')
     eventbrite = Eventbrite(eventbrite_api_key)
 
     # GET ADDRESS FROM HOTEL NAME (GOOGLEMAPS)
-    google_api_key = get_key('google')
+    google_api_key = get_key('GOOGLE')
     gmaps = googlemaps.Client(key=google_api_key)
     places_result = gmaps.places(query=session.attributes['hotel'])
     hotel_address = [e['formatted_address'] for e in places_result['results']]
@@ -177,9 +187,10 @@ def get_recommendation(desired_time):
     for i in eventnames:
         eventkeys.append(('event-' + i).replace(" ", "-"))
 
-    eventlist = zip(eventkeys, eventnames, eventnames, ['']*len(eventkeys), eventlogo)
+    eventlist = zip(eventkeys, eventnames, eventnames, eventlogo)
 
-    eventstart = [l['local'] for l in (e['start'] for e in eventquery['events'])]
+    eventstart = [l['local']
+                  for l in (e['start'] for e in eventquery['events'])]
     start1 = eventstart[0]
 
     eventend = [l['local'] for l in (e['end'] for e in eventquery['events'])]
@@ -188,7 +199,6 @@ def get_recommendation(desired_time):
     eventvenue = [v['venue_id'] for v in eventquery['events']]
     venue1 = eventvenue[0]
     venuequery = eventbrite.get('/venues/{0}'.format(venue1))
-    a = []
     venue_list = venuequery['address']['localized_multi_line_address_display']
     venue_string = " ".join(str(x) for x in venue_list)
 
@@ -202,53 +212,44 @@ def get_recommendation(desired_time):
         eventterms.append((((category_input + '__' + session.attributes['music_cat']).replace(" ", "_")).replace("/", "and")).lower())
 
     termfile = zip(eventkeys, eventterms)
-
-    # PUT EVENT DETAILS INTO PRODUCTS FILE AND TERMS FILE
-    with io.open('products.tsv', 'a', encoding='utf-8') as f:
-        w = csv.writer(f, delimiter='\t')
-        f.seek(f.tell() - len(os.linesep))
-        f.truncate()
-        if f.tell() !=3:
-            w.writerow("")
-        for i in eventlist:
-            w.writerow(i)
-        f.seek(f.tell() - len(os.linesep))
-        f.truncate()
-
-    with io.open('terms.tsv', 'a', encoding='utf-8') as f:
-        w = csv.writer(f, delimiter='\t')
-        f.seek(f.tell() - len(os.linesep))
-        f.truncate()
-        if f.tell() !=3:
-            w.writerow("")
-        for i in termfile:
-            w.writerow(i)
-        f.seek(f.tell() - len(os.linesep))
-        f.truncate()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.executemany("""
+                INSERT INTO products (id, name, description, image_link)
+                VALUES (%s, %s, %s, %s)
+                """, eventlist)
+            cursor.executemany("""
+                INSERT INTO terms (event_key, event_term) VALUES (%s, %s)
+                """, termfile)
+    conn.close()
 
     # TEXT EVENT DETAILS
-    from twilio.rest import Client
 
-    account_sid = get_key('twilio_sid')
-    auth_token = get_key('twilio_token')
+    account_sid = get_key('TWILIO_SID')
+    auth_token = get_key('TWILIO_TOKEN')
 
-    client = Client(account_sid, auth_token)
+    client = twilio.rest.Client(account_sid, auth_token)
 
     client.messages.create(
         to=session.attributes['phone_number'],
-        from_=get_key('twilio_phone'),
-        body="Your IHG Concierge has sent you an event you may enjoy: " + '\n' + event1 + '\n' + descr1[:800] + '\n' + "Start Time: " + start1 + '\n' + "End Time: " + end1 + '\n' + "Venue: " + venue_string + '\n' + url1,
+        from_=get_key('TWILIO_PHONE'),
+        body="Your IHG Concierge has sent you an event you may enjoy: " +
+             '\n' + event1 + '\n' + descr1[:800] + '\n' + "Start Time: " +
+             start1 + '\n' + "End Time: " + end1 + '\n' + "Venue: " +
+             venue_string + '\n' + url1,
         media_url=logo1)
 
     return eventnames[0]
 
+
 def get_url(artist_request):
 
     # USE SPOTIFY CLIENT CREDENTIALS FROM API KEYS FILE
-    spotify_client_id = get_key('spotify_client_id')
-    spotify_client_secret = get_key('spotify_client_secret')
-    client_credentials_manager = SpotifyClientCredentials(client_id=spotify_client_id,
-                                                          client_secret=spotify_client_secret)
+    spotify_client_id = get_key('SPOTIFY_CLIENT_ID')
+    spotify_client_secret = get_key('SPOTIFY_CLIENT_SECRET')
+    client_credentials_manager = \
+        SpotifyClientCredentials(client_id=spotify_client_id,
+                                 client_secret=spotify_client_secret)
     spot = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
     # GET ARTIST ID FROM SPOTIFY
@@ -275,14 +276,16 @@ def get_url(artist_request):
                 break
 
         # WRITE ERROR LOG FOR MISSING SPOTIFY CATEGORIES IN CATEGORY_MAP.CSV
-        try: found_cat_map
+        try:
+            found_cat_map
         except NameError:
             session.attributes['eventbrite_cat'] = primary_genre
             session.attributes['eventbrite_sub'] = 'check genre'
-            session.attributes['category_map_error'] = ["Check category map: " + primary_genre,]
-            with open('errors.txt', 'a') as f:
-                w = csv.writer(f)
-                w.writerow(session.attributes['category_map_error'])
+            session.attributes['category_map_error'] = \
+                ["Check category map: " + primary_genre]
+            # with open('errors.txt', 'a') as f:
+            #     w = csv.writer(f)
+            #     w.writerow(session.attributes['category_map_error'])
 
     # UPDATE TERMS FILE WITH ARTIST GENRES
     file_genres = []
@@ -296,17 +299,6 @@ def get_url(artist_request):
 
     artisttags = zip(artistset, file_genres)
 
-    with open('terms.tsv', 'a') as f:
-        w = csv.writer(f, delimiter='\t')
-        f.seek(f.tell() - len(os.linesep))
-        f.truncate()
-        if f.tell() !=3:
-            w.writerow("")
-        for i in artisttags:
-            w.writerow(i)
-        f.seek(f.tell() - len(os.linesep))
-        f.truncate()
-
     # UPDATE TRANSACTIONS FILE WITH MUSIC INTERACTION
     transactions = []
     transactions.insert(0, "")
@@ -315,39 +307,33 @@ def get_url(artist_request):
     transactions.insert(3, '1')
     transactions = [transactions, ]
 
-    with open('transactions.tsv', 'a') as f:
-        w = csv.writer(f, delimiter='\t')
-        f.seek(f.tell() - len(os.linesep))
-        f.truncate()
-        if f.tell() !=3:
-            w.writerow("")
-        for i in transactions:
-            w.writerow(i)
-        f.seek(f.tell() - len(os.linesep))
-        f.truncate()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.executemany("""
+                INSERT INTO terms (event_key, event_term) VALUES (%s, %s)
+                """, artisttags)
+            cursor.executemany("""
+                INSERT INTO transactions (ts, guest, term, count)
+                VALUES (%s, %s, %s, %s)
+                """, transactions)
+    conn.close()
 
-
-
-    # UPDATE GUESTS.CSV FILE WITH NEW PREFERRED CATEGORY
-    filename = 'guests.csv'
-    with NamedTemporaryFile('w', delete=False, encoding='UTF-8') as tempfile:
-        with open(filename) as f:
-            r = csv.DictReader(f, fieldnames=(
-            "room_number", "first_name", "last_name", "hotel", "phone_number", "music_cat", "music_cat_id"))
-            w = csv.DictWriter(tempfile, fieldnames=(
-            "room_number", "first_name", "last_name", "hotel", "phone_number", "music_cat", "music_cat_id"))
-            for row in r:
-                print(row['first_name'])
-                print(session.attributes['guest_name'])
-                if row['first_name'].lower() == session.attributes['guest_name'].lower():
-                    print("Code got to this point")
-                    row['music_cat'] = session.attributes['eventbrite_cat']
-                    row['music_cat_id'] = session.attributes['eventbrite_sub']
-                    print(row['music_cat'])
-                w.writerow(row)
-        tempfile.seek(tempfile.tell() - len(os.linesep))
-        tempfile.truncate()
-    shutil.move(tempfile.name, filename)
+    # # UPDATE GUESTS.CSV FILE WITH NEW PREFERRED CATEGORY
+    # filename = 'guests.csv'
+    # with tempfile.NamedTemporaryFile('w', delete=False, encoding='UTF-8') as tempfile:
+    #     with open(filename) as f:
+    #         r = csv.DictReader(f, fieldnames=(
+    #         "room_number", "first_name", "last_name", "hotel", "phone_number", "music_cat", "music_cat_id"))
+    #         w = csv.DictWriter(tempfile, fieldnames=(
+    #         "room_number", "first_name", "last_name", "hotel", "phone_number", "music_cat", "music_cat_id"))
+    #         for row in r:
+    #             if row['first_name'].lower() == session.attributes['guest_name'].lower():
+    #                 row['music_cat'] = session.attributes['eventbrite_cat']
+    #                 row['music_cat_id'] = session.attributes['eventbrite_sub']
+    #             w.writerow(row)
+    #     tempfile.seek(tempfile.tell() - len(os.linesep))
+    #     tempfile.truncate()
+    # shutil.move(tempfile.name, filename)
 
     # RETURN PREVIEW URL FROM SPOTIFY
     top_track_query = spot.artist_top_tracks(artist_id=artist_id_str)
@@ -355,6 +341,7 @@ def get_url(artist_request):
     for x in preview_urls:
         if x is not None:
             return x
+
 
 @ask.intent("NoIntent")
 def close():
@@ -376,5 +363,111 @@ def pause():
 def resume():
     return audio('Resuming.').resume()
 
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/terms')
+def terms():
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""SELECT * FROM terms""")
+            terms = cursor.fetchall()
+    conn.close()
+
+    def format(term):
+        return term.replace(" ", "_") \
+                   .replace("-", "_") \
+                   .replace('&', '_and_').lower()
+
+    formatted_terms = [(t[0], format(t[1])) for t in terms]
+    return send_tsv(formatted_terms, 'terms')
+
+
+@app.route('/transactions')
+def transactions():
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""SELECT * FROM transactions""")
+            transactions = cursor.fetchall()
+    conn.close()
+    return send_tsv(transactions, 'transactions')
+
+
+@app.route('/products')
+def products():
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""SELECT * FROM products""")
+            products = cursor.fetchall()
+    conn.close()
+    formatted_products = [(p[0], p[1], p[2], '', p[3])
+                          for p in products]
+    return send_tsv(formatted_products, 'products')
+
+
+def send_tsv(rows, filename):
+    f = io.StringIO()
+    w = csv.writer(f, delimiter='\t')
+    w.writerows(rows)
+    output = make_response(f.getvalue())
+    output.headers['Content-Disposition'] = \
+        'attachment; filename=%s.tsv' % filename
+    output.headers['Content-type'] = 'text/tab-separated-values'
+    return output
+
+
+def table_exists(conn, table_name):
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT EXISTS (
+             SELECT 1 FROM information_schema.tables
+             WHERE table_schema = 'public'
+              AND table_name = %s)
+            """, (table_name,))
+        return bool(cursor.fetchone()[0])
+
+
+def get_connection():
+    urllib.parse.uses_netloc.append("postgres")
+    url = urllib.parse.urlparse(get_key('DATABASE_URL'))
+
+    conn = psycopg2.connect(
+        database=url.path[1:],
+        user=url.username,
+        password=url.password,
+        host=url.hostname,
+        port=url.port
+    )
+    return conn
+
+
+@app.before_first_request
+def run_on_start():
+    with get_connection() as conn:
+        if not table_exists(conn, 'terms'):
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    CREATE TABLE terms (event_key text, event_term text)
+                    """)
+        if not table_exists(conn, 'products'):
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    CREATE TABLE products
+                     (id text, name text, description text,
+                      image_link text)
+                    """)
+        if not table_exists(conn, 'transactions'):
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    CREATE table transactions
+                     (ts text, guest text, term text, count int)
+                    """)
+    conn.close()
+
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)

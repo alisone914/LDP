@@ -2,5 +2,6 @@ eventbrite
 flask
 flask_ask
 googlemaps
+psycopg2
 spotipy
 twilio
