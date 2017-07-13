@@ -226,14 +226,15 @@ def get_recommendation(desired_time):
 
     client = twilio.rest.Client(account_sid, auth_token)
 
+    phone_number = session.attributes['phone_number']
     client.messages.create(
-        to=session.attributes['phone_number'],
+        to=phone_number,
         from_=get_key('TWILIO_PHONE'),
         body="Your IHG Concierge has sent you an event you may enjoy: " +
              '\n' + event1 + '\n' + descr1[:800] + '\n' + "Start Time: " +
              start1 + '\n' + "End Time: " + end1 + '\n' + "Venue: " +
              venue_string + '\n' + url1,
-        media_url=logo1)
+        media_url=logo1 if phone_number.startswith('+1') else None)
 
     return eventnames[0]
 
