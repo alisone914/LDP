@@ -1,10 +1,7 @@
 import csv
-import datetime
 import io
 import logging
 import os
-import shutil
-import tempfile
 import urllib
 
 import googlemaps
@@ -13,8 +10,7 @@ import spotipy
 import twilio.rest
 from eventbrite import Eventbrite
 from flask import Flask, make_response, render_template
-from flask_ask import Ask, audio, context, current_stream, question, \
-                      request, session, statement
+from flask_ask import Ask, audio, question, session, statement
 from spotipy.oauth2 import SpotifyClientCredentials
 
 
@@ -46,20 +42,20 @@ def new_interaction():
 @ask.intent("RoomIntent", convert={'room_number': int})
 def store_room_number(room_number):
     session.attributes['room_number'] = room_number
-    room_number = str(room_number)
-    with io.open('guests.csv', 'r') as f:
-        r = csv.DictReader(f, fieldnames=(
-            "room_number", "first_name", "last_name", "hotel",
-            "phone_number", "music_cat", "music_cat_id"))
-        for row in r:
-            file_room_number = row['room_number']
-            if file_room_number == room_number:
-                guest_name = row['first_name']
-                session.attributes['guest_name'] = guest_name
-                session.attributes['hotel'] = row['hotel']
-                session.attributes['phone_number'] = row['phone_number']
-                session.attributes['music_cat'] = row['music_cat']
-                session.attributes['music_cat_id'] = row['music_cat_id']
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT first_name, last_name, hotel, phone, genre, genre_id
+                FROM guests WHERE id=%s
+                """, (room_number,))
+            row = cursor.fetchone()
+            guest_name = row[0]
+            session.attributes['guest_name'] = guest_name
+            session.attributes['hotel'] = row[2]
+            session.attributes['phone_number'] = row[3]
+            session.attributes['music_cat'] = row[4]
+            session.attributes['music_cat_id'] = row[5]
+    conn.close()
     offer_msg = render_template('offer help', guest_name=guest_name)
     reprompt_offer_msg = render_template('reprompt offer help')
     return question(offer_msg) \
@@ -316,24 +312,13 @@ def get_url(artist_request):
                 INSERT INTO transactions (ts, guest, term, count)
                 VALUES (%s, %s, %s, %s)
                 """, transactions)
+            cursor.execute("""
+                UPDATE guests SET genre=%s, genre_id=%s
+                WHERE lower(first_name)=%s
+                """, (session.attributes['eventbrite_cat'],
+                      session.attributes['eventbrite_sub'],
+                      session.attributes['guest_name'].lower()))
     conn.close()
-
-    # # UPDATE GUESTS.CSV FILE WITH NEW PREFERRED CATEGORY
-    # filename = 'guests.csv'
-    # with tempfile.NamedTemporaryFile('w', delete=False, encoding='UTF-8') as tempfile:
-    #     with open(filename) as f:
-    #         r = csv.DictReader(f, fieldnames=(
-    #         "room_number", "first_name", "last_name", "hotel", "phone_number", "music_cat", "music_cat_id"))
-    #         w = csv.DictWriter(tempfile, fieldnames=(
-    #         "room_number", "first_name", "last_name", "hotel", "phone_number", "music_cat", "music_cat_id"))
-    #         for row in r:
-    #             if row['first_name'].lower() == session.attributes['guest_name'].lower():
-    #                 row['music_cat'] = session.attributes['eventbrite_cat']
-    #                 row['music_cat_id'] = session.attributes['eventbrite_sub']
-    #             w.writerow(row)
-    #     tempfile.seek(tempfile.tell() - len(os.linesep))
-    #     tempfile.truncate()
-    # shutil.move(tempfile.name, filename)
 
     # RETURN PREVIEW URL FROM SPOTIFY
     top_track_query = spot.artist_top_tracks(artist_id=artist_id_str)
@@ -408,6 +393,16 @@ def products():
     return send_tsv(formatted_products, 'products')
 
 
+@app.route('/guests')
+def guests():
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""SELECT * FROM guests""")
+            guests = cursor.fetchall()
+    conn.close()
+    return send_tsv(guests, 'guests')
+
+
 def send_tsv(rows, filename):
     f = io.StringIO()
     w = csv.writer(f, delimiter='\t')
@@ -464,6 +459,14 @@ def run_on_start():
                 cursor.execute("""
                     CREATE table transactions
                      (ts text, guest text, term text, count int)
+                    """)
+        if not table_exists(conn, 'guests'):
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    CREATE table guests
+                     (id serial primary key, first_name text,
+                      last_name text, hotel text, phone text,
+                      genre text, genre_id int)
                     """)
     conn.close()
 
